@@ -1,0 +1,264 @@
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import { useForm, SubmitHandler } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import { Loader2, UploadCloud, X } from "lucide-react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+
+import { brandSchema, BrandFormValues, BrandApiRow } from "../types";
+import { createBrand, updateBrand, checkBrandUniqueness } from "../providers/fetchProviders";
+
+interface BrandDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selectedBrand: BrandApiRow | null;
+  onSuccess: () => void;
+  currentUser?: { id: string; name: string; email: string };
+}
+
+export function BrandDialog({
+  open,
+  onOpenChange,
+  selectedBrand,
+  onSuccess,
+  currentUser,
+}: BrandDialogProps) {
+  const isEdit = !!selectedBrand;
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const form = useForm<BrandFormValues>({
+    resolver: zodResolver(brandSchema),
+    defaultValues: {
+      brand_name: "",
+      sku_code: "",
+    },
+  });
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        brand_name: selectedBrand?.brand_name || "",
+        sku_code: selectedBrand?.sku_code || "",
+      });
+      setFile(null);
+      if (selectedBrand?.image) {
+        setPreview(`${process.env.NEXT_PUBLIC_API_BASE_URL}/assets/${selectedBrand.image}`);
+      } else {
+        setPreview(null);
+      }
+    }
+  }, [open, selectedBrand, form]);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const selected = e.target.files[0];
+      setFile(selected);
+      setPreview(URL.createObjectURL(selected));
+    }
+  };
+
+  const removeImage = () => {
+    setFile(null);
+    setPreview(null);
+    form.setValue("image", null);
+  };
+
+  const onSubmit: SubmitHandler<BrandFormValues> = async (values) => {
+    try {
+      // 🛡️ Strict Uniqueness Checker
+      const nameUnique = await checkBrandUniqueness("brand_name", values.brand_name, selectedBrand?.brand_id);
+      if (!nameUnique) {
+        toast.error(`The Brand Name "${values.brand_name}" is already in use.`);
+        return;
+      }
+
+      if (values.sku_code) {
+        const skuUnique = await checkBrandUniqueness("sku_code", values.sku_code, selectedBrand?.brand_id);
+        if (!skuUnique) {
+          toast.error(`The SKU Code "${values.sku_code}" is already in use by another brand.`);
+          return;
+        }
+      }
+
+      let imageId = selectedBrand?.image || null;
+
+      if (file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const uploadRes = await fetch("/api/scm/product-management/brand/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!uploadRes.ok) throw new Error("Image upload failed");
+        const uploadData = await uploadRes.json();
+        imageId = uploadData.id;
+      } else if (!preview) {
+        // user removed the image
+        imageId = null;
+      }
+
+      const payload = { ...values, image: imageId };
+
+      if (isEdit && selectedBrand) {
+        await updateBrand(selectedBrand.brand_id, {
+          ...payload,
+          updated_by: currentUser?.id || undefined,
+        });
+        toast.success("Brand updated successfully");
+      } else {
+        await createBrand({
+          ...payload,
+          created_by: currentUser?.id || undefined,
+        });
+        toast.success("Brand created successfully");
+      }
+      onSuccess();
+      onOpenChange(false);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Something went wrong";
+      if (message.includes("unique")) {
+        toast.error("This Brand Name or Code already exists.");
+      } else {
+        toast.error(message);
+      }
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-106.25">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit Brand" : "Create Brand"}</DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? "Update brand details below."
+              : "Register a new brand to the system."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormItem>
+              <FormLabel>Brand Image</FormLabel>
+              <div className="flex flex-col gap-4">
+                {preview ? (
+                  <div className="relative w-full min-h-[200px] max-h-[300px] rounded-lg border bg-muted/30 flex items-center justify-center overflow-hidden transition-all">
+                    <Image 
+                      src={preview} 
+                      alt="Brand Preview" 
+                      width={800}
+                      height={400}
+                      className="max-w-full max-h-[300px] object-contain drop-shadow-sm" 
+                      unoptimized
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-md"
+                      onClick={removeImage}
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="w-full">
+                    <div className="flex items-center justify-center w-full">
+                      <label 
+                        className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors border-input"
+                      >
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <UploadCloud className="w-8 h-8 mb-3 text-muted-foreground" />
+                          <p className="mb-2 text-sm text-muted-foreground">
+                            <span className="font-semibold">Click to upload</span> or drag and drop
+                          </p>
+                          <p className="text-xs text-muted-foreground/60">
+                            SVG, PNG, JPG or GIF (MAX. 800x400px)
+                          </p>
+                        </div>
+                        <Input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleImageChange}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </FormItem>
+
+            <FormField
+              control={form.control}
+              name="brand_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Brand Name <span className="text-red-500">*</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. Toyota, Nike" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="sku_code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>SKU Code</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. TOY, NK" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {isEdit ? "Save Changes" : "Create Brand"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}

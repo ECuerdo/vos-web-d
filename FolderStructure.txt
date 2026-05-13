@@ -1,0 +1,163 @@
+.
+├─ middleware.ts
+├─ package.json
+├─ next.config.ts
+├─ tsconfig.json
+├─ postcss.config.mjs
+├─ tailwind.config.ts
+├─ components.json                     # shadcn config (already present after init)
+├─ public/
+│  ├─ images/
+│  └─ icons/
+└─ src/
+   ├─ app/
+   │  ├─ layout.tsx                    # Root layout (global providers, html/body, fonts)
+   │  ├─ globals.css
+   │  ├─ login/
+   │  │  └─ page.tsx                   # Login page (redirect target)
+   │  ├─ (supply-chain-management)/
+   │  │  ├─ layout.tsx                 # SCM layout shell (SCM sidebar/header/footer)
+   │  │  ├─ page.tsx                   # Optional SCM landing/dashboard
+   │  │  ├─ supplier-management/
+   │  │  │  └─ page.tsx
+   │  │  ├─ procurement-management/
+   │  │  │  └─ page.tsx
+   │  │  ├─ inventory-management/
+   │  │  │  └─ page.tsx
+   │  │  └─ warehouse-management/
+   │  │     └─ page.tsx
+   │  ├─ (financial-management)/
+   │  │  ├─ layout.tsx                 # Finance layout shell
+   │  │  ├─ page.tsx                   # Optional Finance landing/dashboard
+   │  │  ├─ accounts-payable/
+   │  │  │  └─ page.tsx
+   │  │  ├─ accounts-receivable/
+   │  │  │  └─ page.tsx
+   │  │  └─ general-ledger/
+   │  │     └─ page.tsx
+   │  ├─ (human-resource-management)/
+   │  │  ├─ layout.tsx                 # HR layout shell
+   │  │  ├─ page.tsx                   # Optional HR landing/dashboard
+   │  │  ├─ employee-management/
+   │  │  │  └─ page.tsx
+   │  │  ├─ attendance-management/
+   │  │  │  └─ page.tsx
+   │  │  └─ payroll-management/
+   │  │     └─ page.tsx
+   │  ├─ (business-intelligence-analytics)/
+   │  │  ├─ layout.tsx                 # BI layout shell
+   │  │  ├─ page.tsx
+   │  │  ├─ dashboards/
+   │  │  │  └─ page.tsx
+   │  │  └─ reports/
+   │  │     └─ page.tsx
+   │  ├─ (audit-results-findings)/
+   │  │  ├─ layout.tsx                 # Audit layout shell
+   │  │  ├─ page.tsx
+   │  │  ├─ audits/
+   │  │  │  └─ page.tsx
+   │  │  └─ findings/
+   │  │     └─ page.tsx
+   │  └─ api/
+   │     ├─ auth/
+   │     │  ├─ login/route.ts          # (Later) exchange credentials → JWT
+   │     │  └─ logout/route.ts         # (Later) invalidate / clear cookie
+   │     └─ health/route.ts            # simple health endpoint
+   │
+   ├─ modules/
+   │  ├─ supply-chain-management/
+   │  │  ├─ inventory-management/
+   │  │  │  ├─ components/
+   │  │  │  ├─ providers/
+   │  │  │  ├─ hooks/
+   │  │  │  ├─ utils/
+   │  │  │  ├─ types.ts
+   │  │  │  ├─ index.ts
+   │  │  │  └─ InventoryManagementModule.tsx
+   │  │  ├─ procurement-management/
+   │  │  │  ├─ components/
+   │  │  │  ├─ providers/
+   │  │  │  ├─ hooks/
+   │  │  │  ├─ utils/
+   │  │  │  ├─ types.ts
+   │  │  │  ├─ index.ts
+   │  │  │  └─ ProcurementManagementModule.tsx
+   │  │  └─ supplier-management/
+   │  │     ├─ components/
+   │  │     ├─ providers/
+   │  │     ├─ hooks/
+   │  │     ├─ utils/
+   │  │     ├─ types.ts
+   │  │     ├─ index.ts
+   │  │     └─ SupplierManagementModule.tsx
+   │  │
+   │  ├─ financial-management/
+   │  │  ├─ accounts-payable/
+   │  │  │  ├─ components/
+   │  │  │  ├─ providers/
+   │  │  │  ├─ hooks/
+   │  │  │  ├─ utils/
+   │  │  │  ├─ types.ts
+   │  │  │  ├─ index.ts
+   │  │  │  └─ AccountsPayableModule.tsx
+   │  │  └─ ...
+   │  │
+   │  ├─ human-resource-management/
+   │  │  └─ ...
+   │  │
+   │  ├─ business-intelligence-analytics/
+   │  │  └─ ...
+   │  │
+   │  └─ audit-results-findings/
+   │     └─ ...
+   │
+   ├─ components/
+   │  ├─ ui/                           # shadcn/ui components (already here)
+   │  ├─ layout/
+   │  │  ├─ AppShell/
+   │  │  │  ├─ AppShell.tsx            # reusable shell layout (sidebar/header/footer slots)
+   │  │  │  ├─ AppSidebar.tsx          # generic sidebar renderer (takes menu config)
+   │  │  │  ├─ AppHeader.tsx           # generic header/topbar
+   │  │  │  ├─ AppFooter.tsx           # generic footer
+   │  │  │  └─ types.ts                # nav item types, props contracts
+   │  │  └─ menus/
+   │  │     ├─ scm.menu.ts             # Supply Chain menu config
+   │  │     ├─ finance.menu.ts         # Financial menu config
+   │  │     ├─ hr.menu.ts              # HR menu config
+   │  │     ├─ bi.menu.ts              # BI menu config
+   │  │     └─ audit.menu.ts           # Audit menu config
+   │  └─ common/
+   │     ├─ PageHeader.tsx             # reusable title/breadcrumb/actions
+   │     ├─ EmptyState.tsx
+   │     └─ LoadingState.tsx
+   │
+   ├─ lib/
+   │  ├─ auth/
+   │  │  ├─ jwt.ts                     # (Later) sign/verify/decode helpers
+   │  │  ├─ cookies.ts                 # cookie read/write helpers (server-safe)
+   │  │  ├─ session.ts                 # derive session from request/cookie
+   │  │  └─ constants.ts               # cookie names, header keys
+   │  ├─ routes/
+   │  │  ├─ paths.ts                   # centralized route constants
+   │  │  └─ access.ts                  # route guards mapping (public vs protected)
+   │  ├─ http/
+   │  │  ├─ fetcher.ts                 # shared fetch wrapper (later attach token)
+   │  │  └─ errors.ts                  # typed API errors
+   │  ├─ utils/
+   │  │  ├─ cn.ts                      # className helper (shadcn pattern)
+   │  │  ├─ date.ts
+   │  │  └─ format.ts
+   │  └─ config/
+   │     ├─ env.ts                     # runtime-safe env parsing (zod later if you want)
+   │     └─ app.ts                     # app metadata (name, version, etc.)
+   │
+   ├─ store/
+   │  ├─ auth.store.ts                 # (Optional later) client-side auth state
+   │  └─ ui.store.ts                   # (Optional) sidebar collapsed, theme, etc.
+   │
+   ├─ types/
+   │  ├─ api.ts                        # shared API types
+   │  └─ common.ts                     # shared types across modules
+   │
+   └─ styles/
+      └─ theme.css                     # optional design tokens if needed

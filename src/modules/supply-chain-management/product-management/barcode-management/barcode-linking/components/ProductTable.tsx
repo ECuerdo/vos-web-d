@@ -1,0 +1,180 @@
+import React from "react";
+import { toast } from "sonner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox"; // Shadcn Checkbox
+import { Product, Unit } from "../types";
+
+interface ProductTableProps {
+  products: Product[];
+  onEdit: (product: Product) => void;
+  // New Props for Selection
+  isSelectionMode: boolean;
+  selectedIds: string[]; // List of selected product_ids
+  onToggleSelect: (product: Product) => void;
+  onToggleAll: (allIds: string[]) => void;
+}
+
+export function ProductTable({
+  products,
+  onEdit,
+  isSelectionMode,
+  selectedIds,
+  onToggleSelect,
+  onToggleAll,
+}: ProductTableProps) {
+  // Helper to handle safe selection
+  const handleCheckboxChange = (product: Product) => {
+    // STRICT VALIDATION: Check for SKU and Barcode
+    if (!product.barcode) {
+      toast.error("Incomplete Record", {
+        description: "Cannot select product without Barcode.",
+      });
+      return;
+    }
+    onToggleSelect(product);
+  };
+
+  const handleSelectAll = () => {
+    // Filter only valid items for "Select All"
+    const validIds = products
+      .filter((p) => p.product_code && p.barcode)
+      .map((p) => String(p.product_id));
+
+    if (validIds.length === 0) {
+      toast.warning("No valid records to select.");
+      return;
+    }
+
+    // If all valid items are already selected, unselect all. Otherwise select valid ones.
+    const allValidSelected = validIds.every((id) => selectedIds.includes(id));
+    onToggleAll(allValidSelected ? [] : validIds);
+  };
+
+  return (
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-muted/50">
+            {/* Selection Column */}
+            {isSelectionMode && (
+              <TableHead className="w-[50px]">
+                <Checkbox
+                  checked={
+                    products.length > 0 &&
+                    products.every(
+                      (p) =>
+                        !p.product_code ||
+                        !p.barcode ||
+                        selectedIds.includes(String(p.product_id)),
+                    ) &&
+                    selectedIds.length > 0
+                  }
+                  onCheckedChange={handleSelectAll}
+                />
+              </TableHead>
+            )}
+
+            <TableHead className="w-[150px]">SKU Code</TableHead>
+            <TableHead className="min-w-[300px]">Product Name</TableHead>
+            <TableHead>Inventory Type</TableHead>
+            <TableHead>UOM</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {products.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={isSelectionMode ? 5 : 4}
+                className="text-center h-24 text-muted-foreground"
+              >
+                No products found matching your filters.
+              </TableCell>
+            </TableRow>
+          ) : (
+            products.map((product) => {
+              const unitName =
+                typeof product.unit_of_measurement === "object" &&
+                  product.unit_of_measurement
+                  ? (product.unit_of_measurement as Unit).unit_shortcut ||
+                  (product.unit_of_measurement as Unit).unit_name
+                  : "PCS";
+
+              const displayName = product.description || product.product_name;
+              const isBundle = product.record_type === "bundle";
+              const inventoryType = isBundle ? "Bundle" : "Regular";
+
+
+              const isSelected = selectedIds.includes(
+                String(product.product_id),
+              );
+
+              return (
+                <TableRow
+                  key={product.product_id}
+                  className="hover:bg-muted/50"
+                  data-state={isSelected ? "selected" : undefined}
+                >
+                  {/* Checkbox Cell */}
+                  {isSelectionMode && (
+                    <TableCell>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => handleCheckboxChange(product)}
+                      />
+                    </TableCell>
+                  )}
+
+                  {/* SKU Code */}
+                  <TableCell
+                    className="font-medium text-primary cursor-pointer"
+                    onClick={() => onEdit(product)}
+                  >
+                    {product.product_code || "-"}
+                  </TableCell>
+
+                  {/* Product Name */}
+                  <TableCell
+                    className="font-medium cursor-pointer"
+                    onClick={() => onEdit(product)}
+                  >
+                    <div title={displayName} className="whitespace-normal break-words">
+                      {displayName}
+                    </div>
+                  </TableCell>
+
+                  {/* Inventory Type */}
+                  <TableCell>
+                    <Badge
+                      variant="secondary"
+                      className={
+                        isBundle
+                          ? "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/20"
+                          : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                      }
+                    >
+                      {inventoryType}
+                    </Badge>
+                  </TableCell>
+
+                  {/* UOM */}
+                  <TableCell className="text-muted-foreground">
+                    {unitName}
+                  </TableCell>
+
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}

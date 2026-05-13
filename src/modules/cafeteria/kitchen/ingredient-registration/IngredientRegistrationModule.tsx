@@ -1,0 +1,309 @@
+"use client";
+
+import * as React from "react";
+import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import IngredientTable from "./components/IngredientTable";
+import IngredientFormDialog from "./components/IngredientFormDialog";
+import IngredientViewDialog from "./components/IngredientViewDialog";
+import {
+  fetchIngredients,
+  fetchOptions,
+  createIngredient,
+  updateIngredient,
+} from "./providers/fetchProvider";
+import type {
+  Ingredient,
+  IngredientFormValues,
+  IngredientOptions,
+} from "./types";
+
+// ─── Default empty options (used while loading) ──────────────────────────────
+const EMPTY_OPTIONS: IngredientOptions = {
+  brands: [],
+  categories: [],
+  units: [],
+};
+
+const ALL = "__all__";
+
+export default function IngredientRegistrationModule() {
+  // ─ Ingredient list state ──────────────────────────────────────────────
+  const [ingredients, setIngredients] = React.useState<Ingredient[]>([]);
+  const [listLoading, setListLoading] = React.useState(true);
+
+  // ─ Options (dropdown FK data) state ──────────────────────────────────
+  const [options, setOptions] = React.useState<IngredientOptions>(EMPTY_OPTIONS);
+  const [optionsLoading, setOptionsLoading] = React.useState(false);
+
+  // ─ Dialog state ────────────────────────────────────────────────────────
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editTarget, setEditTarget] = React.useState<Ingredient | null>(null);
+
+  // ─ View dialog state ───────────────────────────────────────────────────
+  const [viewOpen, setViewOpen] = React.useState(false);
+  const [viewTarget, setViewTarget] = React.useState<Ingredient | null>(null);
+
+  // ─ Search + filter state ──────────────────────────────────────────────
+  const [search, setSearch] = React.useState("");
+  const [filterBrand, setFilterBrand] = React.useState(ALL);
+  const [filterCategory, setFilterCategory] = React.useState(ALL);
+  const [filterStatus, setFilterStatus] = React.useState(ALL);
+
+  // ─── Load ingredients ──────────────────────────────────────────────────────
+  const loadIngredients = React.useCallback(async () => {
+    setListLoading(true);
+    try {
+      const data = await fetchIngredients();
+      setIngredients(data);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load ingredients.");
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  // ─── Load options (brands/categories/units) ───────────────────────────────
+  const loadOptions = React.useCallback(async () => {
+    setOptionsLoading(true);
+    try {
+      const data = await fetchOptions();
+      setOptions(data);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load form options.");
+    } finally {
+      setOptionsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadIngredients();
+    // Load options on mount so filters are populated immediately
+    loadOptions();
+  }, [loadIngredients, loadOptions]);
+
+  // ─── Open dialog handlers ────────────────────────────────────────────────
+  function openAddDialog() {
+    setEditTarget(null);
+    setDialogOpen(true);
+  }
+
+  function openEditDialog(ingredient: Ingredient) {
+    setEditTarget(ingredient);
+    setDialogOpen(true);
+  }
+
+  function openViewDialog(ingredient: Ingredient) {
+    setViewTarget(ingredient);
+    setViewOpen(true);
+  }
+
+  // ─── Form submit handler ──────────────────────────────────────────────────
+  async function handleFormSubmit(
+    values: IngredientFormValues,
+    id?: number
+  ) {
+    try {
+      if (id != null) {
+        await updateIngredient(id, values);
+        toast.success("Ingredient updated successfully.");
+      } else {
+        await createIngredient(values);
+        toast.success("Ingredient registered successfully.");
+      }
+      setDialogOpen(false);
+      await loadIngredients();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong.");
+      throw err;
+    }
+  }
+
+  // ─── Has active filters ───────────────────────────────────────────────────
+  const hasFilters =
+    search.trim() !== "" ||
+    filterBrand !== ALL ||
+    filterCategory !== ALL ||
+    filterStatus !== ALL;
+
+  function clearFilters() {
+    setSearch("");
+    setFilterBrand(ALL);
+    setFilterCategory(ALL);
+    setFilterStatus(ALL);
+  }
+
+  // ─── Filtered list ───────────────────────────────────────────────────────
+  const filtered = React.useMemo(() => {
+    let result = ingredients;
+
+    const q = search.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (i) =>
+          i.name.toLowerCase().includes(q) ||
+          (i.description ?? "").toLowerCase().includes(q) ||
+          (i.brand_name ?? "").toLowerCase().includes(q) ||
+          (i.category_name ?? "").toLowerCase().includes(q)
+      );
+    }
+
+    if (filterBrand !== ALL) {
+      result = result.filter(
+        (i) => String(i.brand_id) === filterBrand
+      );
+    }
+
+    if (filterCategory !== ALL) {
+      result = result.filter(
+        (i) => String(i.category_id) === filterCategory
+      );
+    }
+
+    if (filterStatus !== ALL) {
+      result = result.filter((i) => String(i.is_active) === filterStatus);
+    }
+
+    return result;
+  }, [ingredients, search, filterBrand, filterCategory, filterStatus]);
+
+  const brandFilterOptions = React.useMemo(
+    () => [
+      { value: ALL, label: "All Brands" },
+      ...options.brands.map((b) => ({ value: String(b.value), label: b.label })),
+    ],
+    [options.brands]
+  );
+
+  const categoryFilterOptions = React.useMemo(
+    () => [
+      { value: ALL, label: "All Categories" },
+      ...options.categories.map((c) => ({ value: String(c.value), label: c.label })),
+    ],
+    [options.categories]
+  );
+
+  // ─── Render ─────────────────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col gap-4">
+      {/* ─ Toolbar ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Ingredient Registration
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Manage kitchen ingredients.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            title="Refresh list"
+            disabled={listLoading}
+            onClick={loadIngredients}
+          >
+            <RefreshCwIcon
+              className={`size-4 ${listLoading ? "animate-spin" : ""}`}
+            />
+            <span className="sr-only">Refresh</span>
+          </Button>
+          <Button onClick={openAddDialog}>
+            <PlusIcon className="size-4" />
+            Add Ingredient
+          </Button>
+        </div>
+      </div>
+
+      {/* ─ Search + Filters ─────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Search */}
+        <Input
+          className="h-9 w-64"
+          placeholder="Search by name, brand, category…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {/* Brand filter */}
+        <SearchableSelect
+          value={filterBrand}
+          onValueChange={setFilterBrand}
+          options={brandFilterOptions}
+          placeholder="All Brands"
+          className="h-9 w-40"
+          disabled={optionsLoading}
+        />
+
+        {/* Category filter */}
+        <SearchableSelect
+          value={filterCategory}
+          onValueChange={setFilterCategory}
+          options={categoryFilterOptions}
+          placeholder="All Categories"
+          className="h-9 w-40"
+          disabled={optionsLoading}
+        />
+
+        {/* Status filter */}
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="h-9 w-40 font-semibold">
+            <SelectValue placeholder="All Statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All Statuses</SelectItem>
+            <SelectItem value="1">Active</SelectItem>
+            <SelectItem value="0">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Clear filters */}
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            <XIcon className="size-3.5 mr-1" />
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {/* ─ Table ────────────────────────────────────────────────────────────── */}
+      <IngredientTable
+        ingredients={filtered}
+        isLoading={listLoading}
+        onEdit={openEditDialog}
+        onView={openViewDialog}
+      />
+
+      {/* ─ Add / Edit dialog ───────────────────────────────────────────────── */}
+      <IngredientFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editTarget={editTarget}
+        options={options}
+        optionsLoading={optionsLoading}
+        existingIngredients={ingredients}
+        onSubmit={handleFormSubmit}
+      />
+
+      {/* ─ View dialog ──────────────────────────────────────────────────────── */}
+      <IngredientViewDialog
+        open={viewOpen}
+        onOpenChange={setViewOpen}
+        ingredient={viewTarget}
+      />
+    </div>
+  );
+}
