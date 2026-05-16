@@ -22,7 +22,7 @@ const getRemotePatterns = () => {
 
 const nextConfig: NextConfig = {
     output: "standalone",
-    allowedDevOrigins: ["msi-4", "msi-lo", "goatedcodoer", "192.168.0.143", "100.124.220.52"],
+    allowedDevOrigins: ["msi-4", "msi-lo", "goatedcodoer", "192.168.0.143", "100.124.220.52", '100.107.231.23'],
     images: {
         remotePatterns: getRemotePatterns(),
     },
