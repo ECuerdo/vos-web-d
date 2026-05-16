@@ -13,15 +13,15 @@ interface PremiumNotFoundProps {
 }
 
 export function PremiumNotFound({
-    title = "Not Available Yet",
-    subtitle = "FEATURE UNDER DEVELOPMENT",
-    description = "This module is currently being finalized. Our team is working hard to bring this feature to life with the highest standards of precision and quality."
-}: PremiumNotFoundProps) {
+                                    title = "Not Available Yet",
+                                    subtitle = "FEATURE UNDER DEVELOPMENT",
+                                    description = "This module is currently being finalized. Our team is working hard to bring this feature to life with the highest standards of precision and quality."
+                                }: PremiumNotFoundProps) {
     return (
         <div className="relative flex h-full min-h-[85vh] w-full flex-col items-center justify-center overflow-hidden px-4">
             {/* Background Aesthetic Elements */}
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
-            
+
             {/* Animated Glows */}
             <div className="absolute -left-20 top-20 h-[300px] w-[300px] rounded-full bg-primary/5 blur-[100px] animate-pulse" />
             <div className="absolute -right-20 bottom-20 h-[300px] w-[300px] rounded-full bg-emerald-500/5 blur-[100px] animate-pulse delay-700" />

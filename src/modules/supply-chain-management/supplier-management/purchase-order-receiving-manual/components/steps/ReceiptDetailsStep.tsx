@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { Pencil, XCircle } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -40,6 +41,9 @@ export function ReceiptDetailsStep({ onContinue }: { onContinue: () => void }) {
         setReceiptType,
         receiptDate,
         setReceiptDate,
+        loadReceipt,
+        editingReceiptId,
+        clearEditingReceiptId,
     } = useReceivingProductsManual();
 
     const branchesLabel = React.useMemo(() => {
@@ -146,15 +150,36 @@ export function ReceiptDetailsStep({ onContinue }: { onContinue: () => void }) {
                                     <span className="text-muted-foreground">
                                         {h.itemsCount} {h.itemsCount === 1 ? "item" : "items"}
                                     </span>
-                                    <Badge
-                                        variant="outline"
-                                        className={cn(
-                                            "text-[10px] uppercase h-4 px-1 leading-none border-amber-500/30",
-                                            h.isPosted ? "bg-amber-100 text-amber-800" : "bg-white text-muted-foreground"
-                                        )}
-                                    >
-                                        {h.isPosted ? "Posted" : "Unposted"}
-                                    </Badge>
+                                    {h.isReverted ? (
+                                        <>
+                                            <Badge
+                                                variant="outline"
+                                                className="text-[10px] uppercase h-4 px-1 leading-none border-orange-500/40 bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                                            >
+                                                Reverted
+                                            </Badge>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-5 px-1.5 text-[10px] text-orange-700 hover:text-orange-900 hover:bg-orange-100"
+                                                onClick={() => loadReceipt(h.receiptNo)}
+                                            >
+                                                <Pencil className="h-3 w-3 mr-0.5" />
+                                                Edit
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <Badge
+                                            variant="outline"
+                                            className={cn(
+                                                "text-[10px] uppercase h-4 px-1 leading-none border-amber-500/30",
+                                                h.isPosted ? "bg-amber-100 text-amber-800" : "bg-white text-muted-foreground"
+                                            )}
+                                        >
+                                            {h.isPosted ? "Posted" : "Unposted"}
+                                        </Badge>
+                                    )}
+
                                 </div>
                             </div>
                         ))}
@@ -163,15 +188,33 @@ export function ReceiptDetailsStep({ onContinue }: { onContinue: () => void }) {
             )}
 
             <Card className="p-4">
-                <div className="text-sm font-semibold">Receipt Details</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                    Create receipt first, then continue to product verification.
+                <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold">Receipt Details</div>
+                    {editingReceiptId && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-orange-700 hover:bg-orange-100" onClick={clearEditingReceiptId}>
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Cancel Edit
+                        </Button>
+                    )}
                 </div>
+                {editingReceiptId ? (
+                    <div className="mt-1 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                        Editing reverted receipt: <span className="font-mono">{editingReceiptId}</span>
+                    </div>
+                ) : (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                        Create receipt first, then continue to product verification.
+                    </div>
+                )}
 
-                <div className="mt-4 grid gap-4">
+                <div className="mt-4 grid gap-4 max-w-md">
                     <div className="grid gap-2">
                         <Label>Receipt Number *</Label>
-                        <Input value={receiptNo} onChange={(e) => setReceiptNo(e.target.value)} placeholder="Enter receipt number" />
+                        <Input 
+                            value={receiptNo} 
+                            onChange={(e) => setReceiptNo(e.target.value)} 
+                            placeholder="Enter receipt number" 
+                        />
                     </div>
 
                     <div className="grid gap-2">
@@ -198,8 +241,6 @@ export function ReceiptDetailsStep({ onContinue }: { onContinue: () => void }) {
                             onChange={(e) => setReceiptDate(e.target.value)}
                         />
                     </div>
-
-
 
                     <Button type="button" className="w-full" onClick={handleContinue}>
                         Continue Product Verification
