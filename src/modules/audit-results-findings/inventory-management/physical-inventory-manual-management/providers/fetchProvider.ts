@@ -483,7 +483,26 @@ export type RunningInventoryFilterInput = {
     branchName: string;
     supplierShortcut?: string;
     productCategory?: string;
+    cutOffDate?: string;
 };
+
+/**
+ * Converts a datetime string to a proper UTC ISO string for server-side comparison.
+ *
+ * IMPORTANT: This runs in the BROWSER (client-side), not on the server.
+ * The browser already interprets bare datetime strings (e.g. "2026-05-16T05:06:00"
+ * with no timezone suffix) as LOCAL time (UTC+8 for PH users).
+ * So new Date("2026-05-16T05:06:00").getTime() already gives the correct UTC ms.
+ * We MUST NOT manually subtract 8 hours — that would double-convert and make the
+ * cutoff 8 hours too early, allowing after-cutoff transactions to slip through.
+ */
+function toUtcIsoString(localDateStr: string): string {
+    const trimmed = localDateStr.trim();
+    const d = new Date(trimmed);
+    if (isNaN(d.getTime())) return trimmed; // fallback: return as-is if unparseable
+    // .toISOString() always produces a UTC 'Z' string from the internal UTC ms value
+    return d.toISOString();
+}
 
 export async function fetchRunningInventoryFiltered(input: RunningInventoryFilterInput): Promise<RunningInventoryRow[]> {
     const params: Record<string, string> = {
@@ -496,6 +515,11 @@ export async function fetchRunningInventoryFiltered(input: RunningInventoryFilte
 
     if (input.productCategory && input.productCategory.trim()) {
         params.productCategory = input.productCategory.trim();
+    }
+
+    if (input.cutOffDate && input.cutOffDate.trim()) {
+        // Normalize to UTC before sending to the API
+        params.cutOffDate = toUtcIsoString(input.cutOffDate.trim());
     }
 
     const rows = await apiGet<RunningInventoryApiRow[]>(
@@ -862,6 +886,7 @@ export function resolveRunningInventoryFilterParams(input: {
     branches: BranchRow[];
     suppliers: SupplierRow[];
     lookup: ProductLookupBundle;
+    cutOffDate?: string | null;
 }): RunningInventoryFilterInput {
     const branch = input.branches.find((row) => row.id === input.branchId);
     if (!branch?.branch_name?.trim()) {
@@ -887,6 +912,7 @@ export function resolveRunningInventoryFilterParams(input: {
             ? { supplierShortcut: supplier.supplier_shortcut.trim() }
             : {}),
         ...(isAllCategory ? {} : { productCategory: category.category_name.trim() }),
+        ...(input.cutOffDate ? { cutOffDate: input.cutOffDate } : {}),
     };
 }
 function extractTrailingNumber(value: string): number | null {

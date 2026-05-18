@@ -30,7 +30,7 @@ import {
     computeAmount,
     computeDifferenceCost,
     computeVariance,
-    convertBaseQtyToDisplayQty,
+    cascadeFamilyBaseStockToVariants,
     createPhysicalInventoryDetailsBulk,
     createPhysicalInventoryHeader,
     derivePhysicalInventoryStatus,
@@ -153,11 +153,13 @@ function buildRunningInventoryCacheKey(input: {
     branchName: string;
     supplierShortcut?: string;
     productCategory?: string;
+    cutOffDate?: string;
 }): string {
     return [
         input.branchName.trim().toLowerCase(),
         (input.supplierShortcut ?? "__any__").trim().toLowerCase(),
         (input.productCategory ?? "__all__").trim().toLowerCase(),
+        (input.cutOffDate ?? "__no_cutoff__").trim().toLowerCase(),
     ].join("::");
 }
 
@@ -221,7 +223,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                     if (sentinel) {
                         const rect = sentinel.getBoundingClientRect();
                         const shouldBeScrolled = rect.bottom < 0;
-                        
+
                         setIsScrolled(prev => {
                             if (prev !== shouldBeScrolled) return shouldBeScrolled;
                             return prev;
@@ -448,6 +450,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                     details: activeDetails,
                     runningInventoryRows: activeRunningInventoryRows,
                     ph_id: activeHeader?.id ?? null,
+                    ignoreRfid: true,
                 });
 
                 setGroupedRows(nextGrouped);
@@ -460,7 +463,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
 
     const refreshRunningInventoryReadModel = React.useCallback(
         async (
-            nextFilters: PhysicalInventoryFiltersType,
+            nextFilters: PhysicalInventoryFiltersType & { cutOffDate?: string | null },
             nextLookup?: ProductLookupBundle | null,
         ): Promise<RunningInventoryRow[]> => {
             const activeLookup = nextLookup ?? lookupBundle;
@@ -484,6 +487,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                 branches,
                 suppliers,
                 lookup: activeLookup,
+                cutOffDate: nextFilters.cutOffDate,
             });
 
             const cacheKey = buildRunningInventoryCacheKey(params);
@@ -505,9 +509,9 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
     const reloadDetails = React.useCallback(async (id: number) => {
         const [nextDetails] = await Promise.all([
             fetchPhysicalInventoryDetails(id),
-            updatePhysicalInventoryHeader(id, { total_amount: 0 }), 
+            updatePhysicalInventoryHeader(id, { total_amount: 0 }),
         ]);
-        
+
         const finalHeader = await updatePhysicalInventoryHeader(id, {
             total_amount: sumHeaderTotalAmount(nextDetails)
         });
@@ -656,6 +660,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                             branches: nextBranches,
                             suppliers: nextSuppliers,
                             lookup: nextLookup,
+                            cutOffDate: existingHeader.cutOff_date,
                         });
 
                         const cacheKey = buildRunningInventoryCacheKey(params);
@@ -693,6 +698,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                             details: existingDetails,
                             runningInventoryRows: nextRunningRows,
                             ph_id: existingHeader.id ?? null,
+                            ignoreRfid: true,
                         });
 
                         setGroupedRows(nextGrouped);
@@ -816,6 +822,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
             supplier_id: filters.supplier_id,
             category_id: filters.category_id,
             price_type_id: filters.price_type_id,
+            cutOffDate: header?.cutOff_date,
         });
     }, [
         filters.branch_id,
@@ -825,6 +832,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
         isBootLoading,
         lookupBundle,
         refreshRunningInventoryReadModel,
+        header?.cutOff_date,
     ]);
 
     React.useEffect(() => {
@@ -968,6 +976,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                 branches,
                 suppliers,
                 lookup: lookupBundle,
+                cutOffDate: savedHeader.cutOff_date,
             });
 
             const runningInventoryCacheKey = buildRunningInventoryCacheKey(
@@ -1004,12 +1013,41 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                 runningInventoryByProductId.set(row.product_id, current + (row.running_inventory ?? 0));
             }
 
-            // Identify product families (Parent IDs) that have ANY stock in the branch
+            // Identify product families and total base stock
+            const familyBaseStockMap = new Map<number, number>();
             const familiesWithStock = new Set<number>();
+
             for (const variant of eligibleVariants) {
+                const familyKey = variant.parent_id ?? variant.product_id;
                 const stock = runningInventoryByProductId.get(variant.product_id) ?? 0;
+
+                const currentFamilyStock = familyBaseStockMap.get(familyKey) ?? 0;
+                familyBaseStockMap.set(familyKey, currentFamilyStock + stock);
+
                 if (stock !== 0) {
-                    familiesWithStock.add(variant.parent_id ?? variant.product_id);
+                    familiesWithStock.add(familyKey);
+                }
+            }
+
+            // Group variants by family and compute allocations
+            const systemCountAllocations = new Map<number, number>();
+            const variantsByFamily = new Map<number, typeof eligibleVariants>();
+
+            for (const variant of eligibleVariants) {
+                const familyKey = variant.parent_id ?? variant.product_id;
+                if (!familiesWithStock.has(familyKey)) continue;
+
+                if (!variantsByFamily.has(familyKey)) {
+                    variantsByFamily.set(familyKey, []);
+                }
+                variantsByFamily.get(familyKey)!.push(variant);
+            }
+
+            for (const [familyKey, variants] of variantsByFamily.entries()) {
+                const totalBaseStock = familyBaseStockMap.get(familyKey) ?? 0;
+                const allocation = cascadeFamilyBaseStockToVariants(totalBaseStock, variants);
+                for (const [pid, count] of allocation.entries()) {
+                    systemCountAllocations.set(pid, count);
                 }
             }
 
@@ -1020,8 +1058,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                     return familiesWithStock.has(familyKey);
                 })
                 .map((variant) => {
-                    const totalBaseStock = runningInventoryByProductId.get(variant.product_id) ?? 0;
-                    const systemCount = convertBaseQtyToDisplayQty(totalBaseStock, variant.unit_count);
+                    const systemCount = systemCountAllocations.get(variant.product_id) ?? 0;
 
                     const initialPhysicalCount = 0;
                     const variance = computeVariance(initialPhysicalCount, systemCount);
@@ -1103,16 +1140,19 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                     return;
                 }
 
-                const payloads: PhysicalInventoryDetailUpsertPayload[] = siblingsToLoad.map((sibling) => {
-                    // Aggregate running inventory from all suppliers for this product
-                    const totalBaseStock = runningInventoryRows
-                        .filter((r) => r.product_id === sibling.product_id && r.branch_id === header.branch_id)
-                        .reduce((acc, r) => acc + (r.running_inventory ?? 0), 0);
+                // Aggregate running inventory for the ENTIRE FAMILY from all suppliers
+                const familyTotalBaseStock = runningInventoryRows
+                    .filter((r) => r.branch_id === header.branch_id &&
+                        familySiblings.some(s => s.product_id === r.product_id))
+                    .reduce((acc, r) => acc + (r.running_inventory ?? 0), 0);
 
-                    const systemCount = convertBaseQtyToDisplayQty(
-                        totalBaseStock,
-                        sibling.unit_count
-                    );
+                const systemCountAllocations = cascadeFamilyBaseStockToVariants(
+                    familyTotalBaseStock,
+                    familySiblings
+                );
+
+                const payloads: PhysicalInventoryDetailUpsertPayload[] = siblingsToLoad.map((sibling) => {
+                    const systemCount = systemCountAllocations.get(sibling.product_id) ?? 0;
 
                     const initialPhysicalCount = 0;
                     const variance = computeVariance(initialPhysicalCount, systemCount);
@@ -1134,7 +1174,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
 
                 await createPhysicalInventoryDetailsBulk(payloads);
                 await reloadDetails(header.id);
-                
+
                 if (payloads.length > 1) {
                     toast.success(`Added ${payloads.length} variants for family "${variant.product_name}".`);
                 } else {
@@ -1241,7 +1281,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
             const [nextDetails, nextRunningInventoryRows] =
                 await Promise.all([
                     fetchPhysicalInventoryDetails(header.id),
-                    refreshRunningInventoryReadModel(filters),
+                    refreshRunningInventoryReadModel({ ...filters, cutOffDate: header.cutOff_date }),
                 ]);
 
             setDetailRows(nextDetails);
@@ -1345,7 +1385,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                             className="cursor-pointer border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-900/40"
                             onClick={() =>
                                 router.push(
-                                    `/scm/inventory-management/physical-inventory/offsetting?id=${header.id}`,
+                                    `/arf/inventory-management/physical-inventory/offsetting?id=${header.id}`,
                                 )
                             }
                             disabled={!header.id}
@@ -1387,7 +1427,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                                 const bName = branches.find((b) => b.id == (filters.branch_id ?? header.branch_id))?.branch_name ?? "";
                                 const sName = suppliers.find((s) => s.id == (filters.supplier_id ?? header.supplier_id))?.supplier_name ?? "";
                                 const pName = priceTypes.find((pt) => pt.price_type_id == (filters.price_type_id ?? header.price_type))?.price_type_name ?? "";
-                                
+
                                 printAuditSheet({
                                     header,
                                     groupedRows,
@@ -1815,7 +1855,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
             />
 
             {groupedRows.length > 0 && (
-                <div 
+                <div
                     className={cn(
                         "fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-xl px-4 pointer-events-none transition-all duration-500 ease-in-out",
                         isScrolled ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-20 scale-90"
@@ -1831,7 +1871,7 @@ export function PhysicalInventoryManualManagementModule(props: Props) {
                                 className="h-12 w-full bg-transparent border-none focus:ring-0 text-sm pl-12 pr-4 placeholder:text-muted-foreground/50"
                             />
                         </div>
-                        <Button 
+                        <Button
                             className="rounded-full h-12 w-12 p-0 bg-primary text-primary-foreground shadow-lg shadow-primary/40 hover:scale-105 active:scale-95 transition-all shrink-0"
                             onClick={() => setOpenAddProductDialog(true)}
                             disabled={!canEdit}
