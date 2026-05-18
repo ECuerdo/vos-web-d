@@ -56,6 +56,12 @@ export type UnitOption = {
     unit_shortcut: string;
 };
 
+export type ReceiptTypeOption = {
+    id: number;
+    type: string;
+    shortcut: string;
+};
+
 export type DraftDataItem = {
     porId: number;
     productId: number;
@@ -64,6 +70,9 @@ export type DraftDataItem = {
     batchNo: string | null;
     expiryDate: string | null;
     lotId: number | null;
+    receiptNo?: string | null;
+    receiptDate?: string | null;
+    receiptType?: string | null;
 };
 
 export type ReceivingPODetail = {
@@ -146,6 +155,8 @@ type Ctx = {
     setReceiptType: (v: string) => void;
     receiptDate: string;
     setReceiptDate: (v: string) => void;
+
+    receiptTypes: ReceiptTypeOption[];
 
     manualCounts: Record<string, number>;
     setManualCounts: React.Dispatch<React.SetStateAction<Record<string, number>>>;
@@ -249,6 +260,7 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
     // receipt
     const [receiptNo, setReceiptNo] = React.useState("");
     const [receiptType, setReceiptType] = React.useState("");
+    const [receiptTypes, setReceiptTypes] = React.useState<ReceiptTypeOption[]>([]);
     const [receiptDate, setReceiptDate] = React.useState(todayYMD());
 
     const [manualCounts, setManualCounts] = React.useState<Record<string, number>>({});
@@ -348,6 +360,24 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
         })();
     }, []);
 
+    // ✅ Fetch receipt types on mount
+    React.useEffect(() => {
+        (async () => {
+            try {
+                const r = await fetch(API_URL, {
+                    method: "POST",
+                    cache: "no-store",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "get_receipt_types" }),
+                });
+                const j = await asJson(r) as { data?: { receiptTypes?: ReceiptTypeOption[] } };
+                setReceiptTypes(Array.isArray(j?.data?.receiptTypes) ? j.data.receiptTypes : []);
+            } catch {
+                setReceiptTypes([]);
+            }
+        })();
+    }, []);
+
     const resetSession = React.useCallback((opts?: { clearStorage?: boolean; poId?: string }) => {
         setSaveError("");
         setReceiptNo("");
@@ -358,6 +388,7 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
         setEditingReceiptId(null);
         if (opts?.clearStorage && opts?.poId) {
             clearDraft(opts.poId);
+            localStorage.removeItem(`editing_receipt_${opts.poId}`);
         }
     }, []);
 
@@ -403,51 +434,29 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
                 const detail = (j?.data ?? null) as ReceivingPODetail | null;
                 setSelectedPO(detail);
 
-                const hasServerDraft = detail?.draftData && detail.draftData.length > 0;
+                // We no longer auto-restore server drafts (reverted receipts) on load per user request.
+                // We check if the user was previously editing a reverted receipt before reload.
+                const storedEditingId = detail?.id ? localStorage.getItem(`editing_receipt_${detail.id}`) : null;
 
-                if (hasServerDraft) {
-                    // ✅ CLEAR stale local draft to prevent conflicts with restored data
-                    if (detail.id) clearDraft(detail.id);
-
-                    // ✅ DRAFT TRANSFORMATION: Auto-populate from reverted receipt data
-                    //    The server sent draftData (POR rows with qty but no receipt_no).
-                    //    Pre-fill the workbench so the user sees their previous work.
-                    const counts: Record<string, number> = {};
-                    const verifiedIds: string[] = [];
-                    const meta: Record<string, { batchNo?: string; lotId?: string; expiryDate?: string }> = {};
-
-                    for (const d of detail.draftData!) {
-                        const pid = String(d.productId);
-                        const bid = String(d.branchId);
-                        // Match the item ID format used by allocations
-                        let targetId = `${pid}-${bid}`;
-                        detail.allocations.forEach(a => {
-                            a.items.forEach(i => {
-                                if (i.productId === pid && i.branchId === bid) targetId = i.id;
-                            });
-                        });
-
-                        counts[targetId] = d.receivedQuantity;
-                        if (!verifiedIds.includes(pid)) verifiedIds.push(pid);
-
-                        if (d.batchNo || d.expiryDate || d.lotId) {
-                            meta[targetId] = {
-                                batchNo: d.batchNo || undefined,
-                                expiryDate: d.expiryDate || undefined,
-                                lotId: d.lotId ? String(d.lotId) : undefined,
-                            };
-                        }
+                if (storedEditingId) {
+                    // User reloaded while editing a reverted receipt. 
+                    // We clear the state and leave the workbench clean so they can explicitly choose what to do next.
+                    if (detail?.id) {
+                        localStorage.removeItem(`editing_receipt_${detail.id}`);
+                        clearDraft(detail.id); // Clear local draft to prevent data bleed into a new receipt
                     }
-
-                    setManualCounts(counts);
-                    setVerifiedProductIds(verifiedIds);
-                    setMetaDataByPorId(meta);
+                    
+                    setManualCounts({});
+                    setVerifiedProductIds([]);
+                    setMetaDataByPorId({});
                     setReceiptDate(todayYMD());
                     setReceiptNo("");
                     setReceiptType("");
-                    toast.info("Reverted receipt data restored. Enter a new receipt number to continue.");
+                    setEditingReceiptId(null);
+                    
+                    toast.info("Previous edit session cleared. You can start a new receipt or click 'Edit' in history to resume.");
                 } else {
-                    // ✅ PERSISTENCE: Restore draft if available and no server restoration is needed
+                    // ✅ Treat as new receipt. Restore local draft if it exists.
                     const draft = detail?.id ? loadDraft(detail.id) : null;
                     const hasDraftData = draft ? (
                         Object.keys(draft.manualCounts || {}).length > 0 ||
@@ -462,11 +471,16 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
                         setReceiptNo(draft.receiptNo || "");
                         setReceiptType(draft.receiptType || "");
                         setReceiptDate(draft.receiptDate || todayYMD());
+                        setEditingReceiptId(null);
                         toast.info("Draft restored from previous session.");
                     } else {
+                        setManualCounts({});
+                        setVerifiedProductIds([]);
+                        setMetaDataByPorId({});
                         setReceiptDate(todayYMD());
                         setReceiptNo("");
                         setReceiptType("");
+                        setEditingReceiptId(null);
                     }
                 }
 
@@ -544,10 +558,11 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
                     setManualCounts(counts);
                     setVerifiedProductIds(verifiedIds);
                     setMetaDataByPorId(meta);
-                    setReceiptDate(todayYMD());
-                    setReceiptNo("");
-                    setReceiptType("");
-                    toast.info("Reverted receipt data restored. Enter a new receipt number to continue.");
+                    const firstDraft = detail?.draftData?.[0];
+                    setReceiptDate(firstDraft?.receiptDate || todayYMD());
+                    setReceiptNo(firstDraft?.receiptNo || "");
+                    setReceiptType(firstDraft?.receiptType || "");
+                    toast.info("Reverted receipt data restored.");
                 } else {
                     const draft = detail?.id ? loadDraft(detail.id) : null;
                     const hasDraftData = draft ? (
@@ -711,10 +726,37 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
 
     const toggleProductVerification = React.useCallback((productId: string) => {
         setVerifiedProductIds(prev => {
-            if (prev.includes(productId)) return prev.filter(id => id !== productId);
+            if (prev.includes(productId)) {
+                // Clear from manualCounts when unchecking to prevent ghost items in totals
+                setManualCounts(prevCounts => {
+                    const next = { ...prevCounts };
+                    
+                    // Clear by basic productId patterns (for extra items)
+                    delete next[productId];
+                    Object.keys(next).forEach(k => {
+                        if (k.startsWith(`${productId}-`)) delete next[k];
+                    });
+
+                    // Clear by allocation item ID (for standard items)
+                    if (selectedPO?.allocations) {
+                        selectedPO.allocations.forEach(a => {
+                            if (Array.isArray(a.items)) {
+                                a.items.forEach(i => {
+                                    if (String(i.productId) === String(productId)) {
+                                        delete next[i.id];
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    return next;
+                });
+                return prev.filter(id => id !== productId);
+            }
             return [...prev, productId];
         });
-    }, []);
+    }, [selectedPO]);
 
     // ✅ NEW: Supplier Products Fetching
     const getSupplierProducts = React.useCallback(async (supplierId: string) => {
@@ -738,6 +780,11 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
         setEditingReceiptId(rNo);
         setReceiptNo(rNo);
         
+        // Save to localStorage so it survives page reload
+        if (selectedPO.id) {
+            localStorage.setItem(`editing_receipt_${selectedPO.id}`, rNo);
+        }
+        
         // Find receipt date from history
         const hist = selectedPO.history?.find((h: { receiptNo: string; receiptDate?: string }) => h.receiptNo === rNo);
         if (hist?.receiptDate) setReceiptDate(hist.receiptDate.split("T")[0]);
@@ -749,8 +796,19 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "load_receipt", poId: selectedPO.id, receiptNo: rNo })
             });
-            const j = await asJson(r);
+            const j = await asJson(r) as { data?: { items?: { product_id: string; branch_id: string; received_quantity: number; lot_id?: string; batch_no?: string; expiry_date?: string; receipt_type?: string | { id?: string | number } }[] } };
             const items = j?.data?.items || [];
+            
+            if (items.length > 0) {
+                const rt = items[0].receipt_type;
+                if (typeof rt === "object" && rt !== null) {
+                    setReceiptType(String((rt as { id?: string | number }).id || ""));
+                } else if (rt !== undefined && rt !== null) {
+                    setReceiptType(String(rt));
+                } else {
+                    setReceiptType("");
+                }
+            }
             
             const counts: Record<string, number> = {};
             const verifiedIds: string[] = [];
@@ -763,7 +821,7 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
                 let targetId = `${pid}-${bid}`;
                 selectedPO.allocations.forEach((a: { items: ReceivingPOItem[] }) => {
                     a.items.forEach((i: ReceivingPOItem) => {
-                        if (i.productId === pid && i.branchId === bid) targetId = i.id;
+                        if (String(i.productId) === pid && String(i.branchId) === bid) targetId = i.id;
                     });
                 });
                 
@@ -798,6 +856,21 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
         if (!receiptNo.trim()) errs.push("Receipt Number is required.");
         if (!receiptType.trim()) errs.push("Receipt Type is required.");
         if (!receiptDate.trim()) errs.push("Receipt Date is required.");
+
+        // ✅ UNIQUE RECEIPT VALIDATION
+        const trimmedReceiptNo = receiptNo.trim();
+        if (trimmedReceiptNo && Array.isArray(selectedPO?.history)) {
+            const exists = selectedPO.history.some((h: { receiptNo: string }) => h.receiptNo === trimmedReceiptNo);
+            if (exists) {
+                if (!editingReceiptId) {
+                    // Creating a new receipt but number already exists
+                    errs.push("Receipt Number already exists for this PO.");
+                } else if (editingReceiptId !== trimmedReceiptNo) {
+                    // Editing a receipt but trying to rename it to a number that already exists
+                    errs.push("Cannot rename to an existing receipt number.");
+                }
+            }
+        }
 
         if (errs.length > 0) {
             toast.error("Required fields missing", {
@@ -953,6 +1026,7 @@ export function ReceivingProductsManualProvider({ children, receiverId }: { chil
         setReceiptNo,
         receiptType,
         setReceiptType,
+        receiptTypes,
         receiptDate,
         setReceiptDate,
 
