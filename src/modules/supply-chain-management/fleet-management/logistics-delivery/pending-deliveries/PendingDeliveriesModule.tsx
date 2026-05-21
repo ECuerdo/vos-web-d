@@ -414,7 +414,7 @@ export default function PendingDeliveriesModule() {
             .sort((a, b) => a[0].localeCompare(b[0]))
             .map(([name, total]) => [name, formatNumberForPDF(total)]);
 
-        let finalY = doc.lastAutoTable?.finalY || 50;
+        let finalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 50;
         if (finalY > 160) { doc.addPage(); finalY = 20; } else { finalY += 10; }
 
         doc.setFontSize(10);
