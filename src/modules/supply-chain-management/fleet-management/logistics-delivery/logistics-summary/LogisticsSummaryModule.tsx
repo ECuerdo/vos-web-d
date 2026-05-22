@@ -402,7 +402,8 @@ export default function LogisticsSummaryModule() {
             else if (printFilters.status === 'returns') statusLabel = "Total Returns"
             else if (printFilters.status === 'concerns') statusLabel = "Total Concerns"
 
-            const finalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 150
+            // @ts-expect-error - jsPDF autotable internal state access
+            const finalY = doc.lastAutoTable?.finalY || 150
 
             autoTable(doc, {
                 startY: finalY + 10,
